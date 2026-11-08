@@ -126,16 +126,24 @@ Note the `repository_url` returned by `SHOW IMAGE REPOSITORIES`. You will push t
 4. Explores the data: the pIC50 distribution, class balance, and Lipinski Rule of Five properties computed with RDKit
 5. Writes `chembl1978_cleaned.csv` for training, plus `dashboard_eda.csv` and `dashboard_ro5.csv` for the app, to `@QSAR_STAGE`
 
-Run it non-interactively from a SQL worksheet. Upload both notebooks to a stage, create a notebook project from that stage, then execute the first notebook on the app's compute pool with the `QSAR_NB_EAI` integration that `setup.sql` created:
+Run it non-interactively. From a SQL worksheet, create the notebook stage:
 
 ```sql
 USE ROLE QSAR_ROLE;
 USE WAREHOUSE QSAR_WH;
 USE SCHEMA QSAR_DB.PUBLIC;
 CREATE STAGE IF NOT EXISTS NB_PROJECT_STAGE;
--- Upload the notebooks, for example:
--- snow sql -q "PUT file://notebooks/*.ipynb @QSAR_DB.PUBLIC.NB_PROJECT_STAGE AUTO_COMPRESS=FALSE OVERWRITE=TRUE"
+```
 
+From the cloned repository root in a terminal, upload both notebooks. `PUT` reads local files, so do not run it inside a Snowsight worksheet:
+
+```bash
+snow sql -q "PUT file://notebooks/*.ipynb @QSAR_DB.PUBLIC.NB_PROJECT_STAGE AUTO_COMPRESS=FALSE OVERWRITE=TRUE"
+```
+
+Back in the SQL worksheet, create the project from the uploaded files and execute notebook 01 on the app's compute pool with the `QSAR_NB_EAI` integration:
+
+```sql
 CREATE OR REPLACE NOTEBOOK PROJECT QSAR_NOTEBOOKS FROM '@NB_PROJECT_STAGE';
 
 EXECUTE NOTEBOOK PROJECT QSAR_NOTEBOOKS
@@ -362,7 +370,7 @@ export SNOWFLAKE_PAT="<your-PAT>"
 python scripts/test_endpoint.py
 ```
 
-Example output:
+Example output after training on notebook 01's data (the guide's main path):
 
 ```text
 health: 200 {"status":"ok","trees":500,"features":178}
@@ -374,6 +382,8 @@ exemestane     6.21  Inactive    4.96  7.83
 ethanol        5.21  Inactive    4.22  6.92
 invalid           -  Invalid SMILES: not_a_smiles     -     -
 ```
+
+If you used the bundled model instead, letrozole returns about 7.89 and exemestane about 7.00. The exact predictions depend on which model artifacts you baked into the image; the smoke test should still return five rows including the invalid-SMILES error.
 
 ## Build The Streamlit Frontend
 
@@ -427,9 +437,10 @@ snow sql -q "PUT file:///tmp/top_features.csv @QSAR_DB.PUBLIC.QSAR_STAGE AUTO_CO
 snow sql -q "PUT file://docker/training_metrics.json @QSAR_DB.PUBLIC.QSAR_STAGE AUTO_COMPRESS=FALSE OVERWRITE=TRUE"
 ```
 
-If you skipped the notebooks and used the bundled model, generate all three dashboard files from your laptop instead. `scripts/generate_dashboard_data.py` reads `data/chembl1978_cleaned.csv` and calls the service's public endpoint with a PAT:
+If you skipped the notebooks and used the bundled model, generate all three dashboard files from your laptop instead. Install the script's dependencies in your Python 3.11 environment first. `scripts/generate_dashboard_data.py` reads `data/chembl1978_cleaned.csv` and calls the service's public endpoint with a PAT:
 
 ```bash
+python -m pip install requests pandas toml snowflake-connector-python 'rdkit==2025.09.3'
 export QSAR_ENDPOINT="<ingress_url>"
 export SNOWFLAKE_PAT="<your-PAT>"
 export SNOWFLAKE_CONNECTION="<your connection name>"
@@ -506,7 +517,7 @@ IC50 ~  5.5 nM
 
 ## Ask an Agent
 
-This optional section describes a prototype tested in isolated `QSAR_AG_*` objects. It is not deployed to the live `QSAR_DB` app. After completing the core flow, you can add an in-platform Cortex Agent to your own guide environment. Notebook 01 also writes `CHEMBL1978_ASSAYS` and `CHEMBL1978_DOCUMENTS` from ChEMBL. In Snowsight, run `sql/agent.sql` to create a semantic view, a Cortex Search service over linked assay descriptions and publication abstracts, and a procedure that ranks up to 20 candidate SMILES. The search service adds indexing costs.
+This optional section describes a prototype tested in isolated `QSAR_AG_*` objects. It is not deployed to the live `QSAR_DB` app. After completing the core flow, you can add an in-platform Cortex Agent to your own guide environment. **The agent requires both notebooks and `sql/functions.sql`, even if you served the bundled model and generated dashboard CSVs from your laptop.** Run notebook 01 to create `CHEMBL1978_RAW_ACTIVITIES`, `CHEMBL1978_COMPOUNDS`, `CHEMBL1978_ASSAYS`, and `CHEMBL1978_DOCUMENTS`; then run `sql/functions.sql` and notebook 02 to create predictions, fingerprints, and descriptors. CSVs alone do not create these tables. In Snowsight, run `sql/agent.sql` to create the semantic view, Cortex Search service over linked assay descriptions and publication abstracts, and a procedure that ranks up to 20 candidate SMILES. The search service adds indexing costs.
 
 Create the agent from `agent/aromatase_agent.yaml` using the companion repository's deployment script, with the Snowflake connection you used for the core flow:
 
@@ -516,7 +527,44 @@ python scripts/deploy_agent.py --connection <your_connection>
 
 The script creates `QSAR_DB.PUBLIC.AROMATASE_AGENT` and adds it to Snowflake Intelligence. Restart or redeploy the app to see **Ask an Agent**. For a first question, ask: "How many measured aromatase compounds are active and inactive?" The expected answer is 1,061 active and 1,690 inactive. Then ask about the assay conditions for exemestane. Search should cite ChEMBL assay identifiers.
 
-The agent uses Analyst for measured data, Search for assay and publication text, and R-backed tools for predictions and explanations. Its similarity calculation compares against all measured compounds, including held-out rows, and does not establish a validated applicability domain. The fingerprint explanation ranks globally important bits present in a molecule; it is not a per-molecule attribution. `agent/eval_questions.sql` and `agent/eval_config.yaml` provide an optional evaluation set. Its expected prediction values use the bundled model; update them if you trained on notebook output. In the isolated prototype, all 15 cases completed with mean answer correctness 0.956, logical consistency 0.956, and tool selection 0.967. Those scores describe agent responses and routing, not model potency accuracy.
+The agent uses Analyst for measured data, Search for assay and publication text, and R-backed tools for predictions and explanations. Its similarity calculation compares against all measured compounds, including held-out rows, and does not establish a validated applicability domain. The fingerprint explanation ranks globally important bits present in a molecule; it is not a per-molecule attribution.
+
+To evaluate the optional agent, first review `agent/eval_questions.sql`: its expected prediction values use the bundled model, so update them if you trained on notebook output or fetched a newer ChEMBL release. This evaluation creates a Snowflake dataset and task. The evaluating role needs the Cortex Agent database role, `EXECUTE TASK` on the account, and access to the agent, its tools, stage, warehouse, and schema. For the guide's dedicated `QSAR_ROLE`, an account administrator can grant the missing account-level privileges:
+
+```sql
+USE ROLE ACCOUNTADMIN;
+GRANT DATABASE ROLE SNOWFLAKE.CORTEX_AGENT_USER TO ROLE QSAR_ROLE;
+GRANT EXECUTE TASK ON ACCOUNT TO ROLE QSAR_ROLE;
+```
+
+Run `agent/eval_questions.sql` in a Snowsight worksheet to create `AGENT_EVAL_QUESTIONS`. From the repository root, upload the evaluation config:
+
+```bash
+snow sql -q "PUT file://agent/eval_config.yaml @QSAR_DB.PUBLIC.QSAR_STAGE AUTO_COMPRESS=FALSE OVERWRITE=TRUE"
+```
+
+Start the run and check its status from the worksheet:
+
+```sql
+USE ROLE QSAR_ROLE;
+USE WAREHOUSE QSAR_WH;
+CALL EXECUTE_AI_EVALUATION('START', OBJECT_CONSTRUCT('run_name', 'aromatase-guide-eval'),
+  '@QSAR_DB.PUBLIC.QSAR_STAGE/eval_config.yaml');
+CALL EXECUTE_AI_EVALUATION('STATUS', OBJECT_CONSTRUCT('run_name', 'aromatase-guide-eval'),
+  '@QSAR_DB.PUBLIC.QSAR_STAGE/eval_config.yaml');
+```
+
+Repeat `STATUS` until it reports `COMPLETED`, then inspect the Evaluations tab for `AROMATASE_AGENT` in Snowsight. A repeat run needs a new run name and a config without the `dataset` block, or it will try to create the dataset again. If the run fails, inspect `STATUS_DETAILS` and confirm the evaluating role has the required privileges. In the isolated bundled-model prototype, all 15 cases completed with mean answer correctness 0.956, logical consistency 0.956, and tool selection 0.967. Those scores describe agent responses and routing, not model potency accuracy.
+
+To retrieve the scored records in SQL after completion:
+
+```sql
+SELECT INPUT, METRIC_NAME, EVAL_AGG_SCORE, METRIC_STATUS
+FROM TABLE(SNOWFLAKE.LOCAL.GET_AI_EVALUATION_DATA(
+  'QSAR_DB', 'PUBLIC', 'AROMATASE_AGENT', 'CORTEX AGENT', 'aromatase-guide-eval'))
+WHERE METRIC_NAME IS NOT NULL
+ORDER BY INPUT, METRIC_NAME;
+```
 
 ## Review Model Limitations
 
@@ -543,6 +591,9 @@ ALTER SNOWFLAKE INTELLIGENCE SNOWFLAKE_INTELLIGENCE_OBJECT_DEFAULT
   DROP AGENT QSAR_DB.PUBLIC.AROMATASE_AGENT;
 DROP AGENT IF EXISTS QSAR_DB.PUBLIC.AROMATASE_AGENT;
 DROP CORTEX SEARCH SERVICE IF EXISTS QSAR_DB.PUBLIC.ASSAY_SEARCH;
+-- If you ran the optional evaluation, also drop its dataset and source table.
+DROP DATASET IF EXISTS QSAR_DB.PUBLIC.AROMATASE_EVAL_DATASET;
+DROP TABLE IF EXISTS QSAR_DB.PUBLIC.AGENT_EVAL_QUESTIONS;
 ```
 
 Then clean up the core project:
@@ -551,6 +602,8 @@ Then clean up the core project:
 USE ROLE QSAR_ROLE;
 DROP STREAMLIT IF EXISTS QSAR_DB.PUBLIC.QSAR_AROMATASE_APP;
 DROP SERVICE IF EXISTS QSAR_DB.PUBLIC.QSAR_PLUMBER_SVC;
+DROP NOTEBOOK PROJECT IF EXISTS QSAR_DB.PUBLIC.QSAR_NOTEBOOKS;
+DROP STAGE IF EXISTS QSAR_DB.PUBLIC.NB_PROJECT_STAGE;
 
 USE ROLE ACCOUNTADMIN;
 DROP COMPUTE POOL IF EXISTS QSAR_CPU_POOL;
@@ -561,6 +614,8 @@ DROP DATABASE IF EXISTS QSAR_DB;
 DROP WAREHOUSE IF EXISTS QSAR_WH;
 DROP ROLE IF EXISTS QSAR_ROLE;
 ```
+
+If you used the interactive Workspace path, stop its running notebook service before dropping `QSAR_ST_POOL`. Dropping `QSAR_DB` also removes the tables, functions, audit log, and `QSAR_STAGE` created for this guide. Do not run the cleanup block against a shared database or pool.
 
 Also revoke any PAT you created for this guide from your user profile in Snowsight.
 
