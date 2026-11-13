@@ -886,13 +886,19 @@ Congratulations! You've successfully taken an R-based drug discovery model from 
 Next, explore the companion source code, Snowflake documentation, and published aromatase QSAR literature below to build on this workflow.
 
 ### Related Resources
+
+**Project and Biological Data**
 - [Companion GitHub Repository: build-r-python-drug-discovery-apps-and-agents](https://github.com/sfc-gh-cnantasenamat/build-r-python-drug-discovery-apps-and-agents)
+- [ChEMBL Bioactivity Database (Target CHEMBL1978)](https://www.ebi.ac.uk/chembl/)
+- [RCSB Protein Data Bank Structure 3EQM: Human Placental Aromatase](https://www.rcsb.org/structure/3EQM)
+
+**Snowflake Documentation**
 - [Snowpark Container Services Overview](https://docs.snowflake.com/en/developer-guide/snowpark-container-services/overview)
 - [Access a Public Endpoint Programmatically](https://docs.snowflake.com/en/developer-guide/snowpark-container-services/tutorials/advanced/tutorial-8-access-public-endpoint-programmatically)
 - [Programmatic Access Tokens](https://docs.snowflake.com/en/user-guide/programmatic-access-tokens)
 - [Streamlit in Snowflake Documentation](https://docs.snowflake.com/en/developer-guide/streamlit/about-streamlit)
-- [ChEMBL Bioactivity Database (Target CHEMBL1978)](https://www.ebi.ac.uk/chembl/)
-- [RCSB Protein Data Bank Structure 3EQM: Human Placental Aromatase](https://www.rcsb.org/structure/3EQM)
+
+**Research Papers**
 - [Schaduangrat N, Lampa S, Simeon S, Gleeson MP, Spjuth O, Nantasenamat C. Towards reproducible computational drug discovery. J Cheminform (2020)](https://link.springer.com/article/10.1186/s13321-020-0408-x)
 - [Shoombuatong W, Schaduangrat N, Nantasenamat C. Towards understanding aromatase inhibitory activity via QSAR modeling. EXCLI J (2018)](https://pmc.ncbi.nlm.nih.gov/articles/PMC6123608/)
 - [Simeon S, et al. Origin of aromatase inhibitory activity via proteochemometric modeling. PeerJ (2016)](https://peerj.com/articles/1979/)
