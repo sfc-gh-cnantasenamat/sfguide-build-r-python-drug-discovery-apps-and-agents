@@ -56,10 +56,10 @@ The four-lane architecture diagram below maps every data handoff and calling rou
 
 ![Architecture of the R and Python drug discovery app across four lanes: data preparation and model training, model serving and compound scoring, exploring results in Streamlit, and research Q&A and candidate triage with Cortex Agents](assets/methodology-architecture.png)
 
-1. **Data Preparation and Model Training.** Notebook 01 (`01_PREPARE_TRAINING_DATA`) fetches ChEMBL bioactivity records for `CHEMBL1978`, curates 2,751 non-redundant compounds into `CHEMBL1978_COMPOUNDS`, and exports `chembl1978_cleaned.csv` to `@QSAR_STAGE`. The R training script (`docker/train_rcdk.R`) reads that CSV, computes 1,024-bit CDK ECFP4 fingerprints, selects informative bits, and trains the 500-tree `ranger` quantile random forest (`R MODEL ARTIFACTS`).
-2. **Serve Model and Score Compounds.** The saved `.rds` model, ordered `kept_bits.csv` list, and measured fingerprints are packaged into the R Plumber service (`QSAR_PLUMBER_SVC`) on Snowpark Container Services. External AI chat clients (`MCP CLIENT`) connect to `/mcp` over HTTPS using a PAT to invoke the six R tools directly, while shared SQL functions (`sql/functions.sql`) wrap `/sf/*` so Notebook 02 (`02_SCORE_COMPOUNDS`) can batch-score all 2,751 compounds.
+1. **Data Preparation + Model Training.** Notebook 01 (`01_PREPARE_TRAINING_DATA`) fetches ChEMBL bioactivity records for `CHEMBL1978`, curates 2,751 non-redundant compounds into `CHEMBL1978_COMPOUNDS`, and exports `chembl1978_cleaned.csv` to `@QSAR_STAGE`. The R training script (`docker/train_rcdk.R`) reads that CSV, computes 1,024-bit CDK ECFP4 fingerprints, selects informative bits, and trains the 500-tree `ranger` quantile random forest (`R MODEL ARTIFACTS`).
+2. **Serve Model + Score Compounds.** The saved `.rds` model, ordered `kept_bits.csv` list, and measured fingerprints are packaged into the R Plumber service (`QSAR_PLUMBER_SVC`) on Snowpark Container Services. External AI chat clients (`MCP CLIENT`) connect to `/mcp` over HTTPS using a PAT to invoke the six R tools directly, while shared SQL functions (`sql/functions.sql`) wrap `/sf/*` so Notebook 02 (`02_SCORE_COMPOUNDS`) can batch-score all 2,751 compounds.
 3. **Explore Results.** Notebook 02 writes scored tables (`PREDICTIONS + DESCRIPTORS`) and exports stage summaries (`dashboard_eda.csv`, `dashboard_ro5.csv`, `dashboard_predictions.csv`, `top_features.csv`, and `training_metrics.json`) to `@QSAR_STAGE`. The Streamlit in Snowflake app (`QSAR_AROMATASE_APP`) reads `@QSAR_STAGE` for the Dashboard and About pages and calls `/predict` on `QSAR_PLUMBER_SVC` for Single and Batch Prediction.
-4. **Research Q&A and Candidate Triage.** `AROMATASE_AGENT` orchestrates Cortex Analyst (`AROMATASE_SV`), Cortex Search (`ASSAY_SEARCH`), the candidate triage procedure (`TRIAGE_COMPOUNDS`, capped at 20 SMILES), and the shared SQL functions to power conversational Q&A and candidate prioritization (`ASK AN AGENT`). Solid arrows denote steps within a lane, while dashed arrows denote cross-lane artifact and service calls.
+4. **Research Q&A + Candidate Triage.** `AROMATASE_AGENT` orchestrates Cortex Analyst (`AROMATASE_SV`), Cortex Search (`ASSAY_SEARCH`), the candidate triage procedure (`TRIAGE_COMPOUNDS`, capped at 20 SMILES), and the shared SQL functions to power conversational Q&A and candidate prioritization (`ASK AN AGENT`). Solid arrows denote steps within a lane, while dashed arrows denote cross-lane artifact and service calls.
 
 Now that you have a clear map of the architecture, you can clone the companion repository and provision the Snowflake environment.
 
@@ -144,11 +144,15 @@ You should see eight rows in this filtered result: `BIND SERVICE ENDPOINT` on th
 
 With the Snowflake role, pools, stage, and external access integrations ready, you can now curate the experimental ChEMBL bioactivity records that ground the R model.
 
-## Prepare Training Data
+## 1. Data Preparation + Model Training
+
+This stage curates raw ChEMBL bioactivity records for human aromatase into a clean modeling table and trains the 500-tree `ranger` quantile random forest in R.
+
+### 1.1. Prepare Training Data
 
 Before training any model, you must decide which experimental measurements count and standardize them into a single, non-redundant table. An `IC50` value is the concentration associated with 50% inhibition in an assay, whereas a model prediction is an estimate rather than a new measurement.
 
-### Curate the Cohort
+#### Curate the Cohort
 
 `notebooks/01_prepare_training_data.ipynb` applies a four-stage curation funnel to public ChEMBL records for human aromatase (`CHEMBL1978`):
 
@@ -161,7 +165,7 @@ Before training any model, you must decide which experimental measurements count
 
 Now that you understand the four curation decisions, upload and execute Notebook 01 in Snowflake.
 
-### Run the Notebook
+#### Run the Notebook
 
 **Run this step:** In a Snowsight SQL worksheet, create a stage to hold the notebook files.
 
@@ -195,7 +199,7 @@ The execution takes about three minutes and writes `chembl1978_cleaned.csv`, `da
 
 Once the notebook run finishes, verify the curated table counts and stage outputs.
 
-### Check the Result
+#### Check the Result
 
 **Check:** Run the query below in Snowsight to confirm that the Notebook 01 curation pipeline populated `3,960` raw `IC50` records, `2,751` deduplicated compounds, `1,061` active molecules, `313` assays, and `198` publications (from ChEMBL 37; a newer ChEMBL release can change these counts).
 
@@ -228,11 +232,11 @@ Notebook 01 also computes Lipinski Rule-of-Five physicochemical properties (`MW 
 
 With `2,751` curated aromatase compounds and `chembl1978_cleaned.csv` staged in Snowflake, you are ready to encode the molecular structures and train the quantile random forest in R.
 
-## Train the R Model
+### 1.2. Train the R Model
 
 A random forest cannot consume raw SMILES text directly. In this section, you inspect how `docker/train_rcdk.R` converts each molecule into a binary fingerprint, splits the dataset before feature selection to avoid test-set leakage, and fits a 500-tree `ranger` quantile random forest.
 
-### Get the Training Data
+#### Get the Training Data
 
 **Run this step:** Download `chembl1978_cleaned.csv` from `@QSAR_DB.PUBLIC.QSAR_STAGE` into your local `data/` directory (or keep the repository's existing `data/chembl1978_cleaned.csv` snapshot if you want to reproduce the bundled model's exact row order).
 
@@ -249,7 +253,7 @@ CHEMBL4632445,CCC#CCOc1ccc2c(=O)c3ccc(Cn4ccnc4)cc3oc2c1,0.01,11.0,1
 
 Next, examine how `rcdk` turns each `canonical_smiles` string into model features.
 
-### Compute Fingerprints
+#### Compute Fingerprints
 
 > **Note:** The R snippets in this subsection and the next are already in `docker/train_rcdk.R` on disk. Review them to understand the feature contract before running the training container.
 
@@ -283,7 +287,7 @@ stopifnot(identical(colnames(train_x), colnames(test_x)))
 
 With the training matrix filtered to its informative bits, the script fits the quantile random forest.
 
-### Train a Quantile Forest
+#### Train a Quantile Forest
 
 Review the `ranger` call in **docker/train_rcdk.R** below (no action required) to see how the 500-tree regression forest is trained with `quantreg = TRUE` and regression impurity (`variance`) feature importance:
 
@@ -302,7 +306,7 @@ Notice that this is a regression model over continuous `pIC50`, not a separate b
 
 Now let us run the training script inside the same Docker image used for serving so that Java, CDK, `rcdk`, and `ranger` versions match byte for byte.
 
-### Run Training in Docker
+#### Run Training in Docker
 
 **Run this step:** From the repository root, build the local R Plumber image and execute `docker/train_rcdk.R` inside a container with `data/`, `output/`, and `docker/` mounted.
 
@@ -348,11 +352,15 @@ The local preview below illustrates the bundled model's evaluation metrics, pred
 
 Having trained the quantile random forest and paired it with its ordered bit list, you can now package and serve the R model as an API on Snowpark Container Services.
 
-## Serve With R Plumber
+## 2. Serve Model + Score Compounds
+
+With the trained model artifacts in `docker/`, this stage packages the R model into an R Plumber service on Snowpark Container Services, connects external AI assistants via MCP, and batch-scores all `2,751` curated compounds through shared SQL functions.
+
+### 2.1. Serve With R Plumber
 
 To make the saved R model callable by colleagues, SQL queries, apps, and AI assistants without requiring anyone to install R or Java locally, `docker/plumber_api.R` wraps the model in an HTTP service on Snowpark Container Services.
 
-### Inspect the API
+#### Inspect the API
 
 `docker/plumber_api.R` loads `qsar_aromatase_model.rds`, `kept_bits.csv`, `training_metrics.json`, and `train_fingerprints.csv` once at container startup and warms up the `rcdk` Java Virtual Machine (JVM). Its primary endpoints are:
 
@@ -386,7 +394,7 @@ pred   <- predict(model, data = fp_df, type = "quantiles",
 
 Now build the container image and push it to your Snowflake image repository.
 
-### Build and Push
+#### Build and Push
 
 **Run this step:** Authenticate Docker to your Snowflake image registry, build `Dockerfile.plumber` for `linux/amd64`, and push the image to `<repository_url>/r-qsar-plumber:v1` (replace `<repository_url>` with the URL from `SHOW IMAGE REPOSITORIES`).
 
@@ -401,7 +409,7 @@ cd ..
 
 Once the image is pushed to `QSAR_REPO`, you can launch the Snowpark Container Services service.
 
-### Create the Service
+#### Create the Service
 
 **Run this step:** In a Snowsight SQL worksheet, create `QSAR_PLUMBER_SVC` on `QSAR_CPU_POOL` from the inline specification (matching `docker/plumber_spec.yaml`).
 
@@ -468,7 +476,7 @@ Plumber API ready — listening on port 5000
 
 With the service running and its public ingress URL available, verify external HTTPS access with the smoke test script.
 
-### Call the Endpoint
+#### Call the Endpoint
 
 Public Snowpark Container Services endpoints require Snowflake authentication. For programmatic clients, generate a PAT in Snowsight under your user profile scoped to `QSAR_ROLE`, and pass it in the `Authorization` header using the exact `Snowflake Token` format shown below (sending `Bearer <your-PAT>` redirects to the browser login page instead):
 
@@ -503,11 +511,11 @@ If you served the repository's bundled snapshot (or the 180-bit split-first mode
 
 Now that `QSAR_PLUMBER_SVC` is running, you can connect external MCP clients to `/mcp` using the same ingress URL and PAT, then create the shared SQL functions and batch-score the cohort.
 
-## Connect AI Assistants
+### 2.2. Connect AI Assistants
 
 Alongside `/predict` and `/sf/*`, `QSAR_PLUMBER_SVC` exposes a standalone MCP server at `/mcp` over JSON-RPC 2.0 so AI assistants (such as Cortex Code or Claude Desktop) can invoke R model tools directly from natural-language prompts.
 
-### Inspect the MCP Tools
+#### Inspect the MCP Tools
 
 The `/mcp` route exposes six tools backed by the running R container:
 
@@ -522,7 +530,7 @@ The `/mcp` route exposes six tools backed by the running R container:
 
 Because MCP returns structured tool data directly from the R service, the AI client reports exact model and dataset values rather than guessing descriptors or inventing potency numbers. Next, register the `/mcp` endpoint in your client configuration.
 
-### Register the Client
+#### Register the Client
 
 **Run this step:** Add the `qsar-aromatase` server entry to `~/.snowflake/cortex/mcp.json` (or your MCP client's configuration file), replacing `<your-ingress-url>` with the host from `SHOW ENDPOINTS IN SERVICE QSAR_DB.PUBLIC.QSAR_PLUMBER_SVC` and `<your-PAT>` with a PAT restricted to `QSAR_ROLE`.
 
@@ -551,11 +559,11 @@ IC50 ~  5.5 nM
 
 See `docs/mcp-walkthrough.md` in the companion repository for additional client examples and an optional Snowflake Native App packaging pattern (`native_app/`). Next, expose `QSAR_PLUMBER_SVC` through shared SQL functions and batch-score the `2,751` curated compounds.
 
-## Score Compounds
+### 2.3. Score Compounds
 
 While `/mcp` serves interactive AI clients, Snowflake SQL service functions let notebooks, SQL queries, and Cortex Agents call the same R container inside Snowflake and batch-score the entire `CHEMBL1978_COMPOUNDS` cohort.
 
-### Create SQL Functions
+#### Create SQL Functions
 
 Review the `PREDICT_PIC50` declaration from **sql/functions.sql** below (no action required) to see how a Snowflake service function binds SQL calls to `/sf/predict` on `QSAR_PLUMBER_SVC`:
 
@@ -591,7 +599,7 @@ PIC50  CLASS   Q05   Q95   TOP_FEATURE  FRAGMENT
 
 With the shared SQL functions verified, run Notebook 02 to batch-score all `2,751` molecules.
 
-### Run Scoring Notebook
+#### Run Scoring Notebook
 
 **Run this step:** Execute `02_score_compounds.ipynb` in Snowsight to score all `2,751` compounds in `CHEMBL1978_COMPOUNDS` using the SQL functions, populate `CHEMBL1978_PREDICTIONS`, `CHEMBL1978_FINGERPRINTS`, and `CHEMBL1978_DESCRIPTORS`, and write `dashboard_predictions.csv` to `@QSAR_STAGE`.
 
@@ -628,11 +636,11 @@ SCORED  FAILED  RMSE_ALL  FINGERPRINTS  RO5_PASS
 
 Now that `CHEMBL1978_PREDICTIONS`, `CHEMBL1978_FINGERPRINTS`, and `CHEMBL1978_DESCRIPTORS` are populated, you can stage the remaining dashboard files and deploy `QSAR_AROMATASE_APP` so bench scientists can explore the results interactively.
 
-## Build The Streamlit Frontend
+## 3. Explore Results
 
 The Streamlit app (`QSAR_AROMATASE_APP`) gives lab colleagues a browser interface where they can explore the curated and scored ChEMBL cohort first and then submit single or batch SMILES strings on demand without running R scripts locally.
 
-### Stage Dashboard Files
+### 3.1. Stage Dashboard Files
 
 Notebooks 01 and 02 already exported `dashboard_eda.csv`, `dashboard_ro5.csv`, and `dashboard_predictions.csv` to `@QSAR_STAGE`. Upload the remaining model artifacts so the Dashboard and About pages can display feature importances and held-out training metrics alongside the scored predictions.
 
@@ -648,7 +656,7 @@ snow sql -q "PUT file://docker/training_metrics.json @QSAR_DB.PUBLIC.QSAR_STAGE 
 
 With `@QSAR_STAGE` populated, review how the Streamlit application connects stage summaries and live R predictions.
 
-### Review the App
+### 3.2. Review the App
 
 > **Note:** The Streamlit application files in `streamlit/` are already included in the cloned repository. Review how the app separates prepared stage summaries from live R predictions before deploying it.
 
@@ -675,7 +683,7 @@ _, pic50, activity, ci_lo, ci_hi = resp.json()["data"][0]
 
 When running in Snowflake, `streamlit/_shared.py` discovers the service's internal DNS name automatically via `SHOW SERVICES`, so no hardcoded URL is needed. Next, deploy the Streamlit application.
 
-### Deploy the App
+### 3.3. Deploy the App
 
 Review the runtime configuration in **streamlit/snowflake.yml** below (no action required) to see how the app specifies the container runtime, `QSAR_ST_POOL`, and `QSAR_APP_EAI`:
 
@@ -720,13 +728,13 @@ cd ..
 
 With the Streamlit app running, you can now deploy the Cortex Agent that powers conversational research Q&A and multi-compound triage.
 
-## Ask an Agent
+## 4. Research Q&A + Candidate Triage
 
 > **Note:** This section builds on the Snowflake tables created by **both** Notebook 01 (`CHEMBL1978_RAW_ACTIVITIES`, `CHEMBL1978_COMPOUNDS`, `CHEMBL1978_ASSAYS`, and `CHEMBL1978_DOCUMENTS`) and Notebook 02 (`CHEMBL1978_PREDICTIONS`, `CHEMBL1978_FINGERPRINTS`, and `CHEMBL1978_DESCRIPTORS`), plus `sql/functions.sql`. Generating dashboard CSVs from a laptop alone does not create these tables.
 
 When a model score raises follow-up questions such as "How many compounds in the cohort were measured active?", "What assay conditions were used to measure letrozole (`CHEMBL1444`)?", or "Rank letrozole, caffeine, and aspirin for review", an in-platform Cortex Agent (`AROMATASE_AGENT`) can route each question to the right evidence source rather than mixing predictions with measurements.
 
-### Create Agent Tools
+### 4.1. Create Agent Tools
 
 `sql/agent.sql` builds three governed capabilities that complement the R-backed SQL functions:
 
@@ -745,7 +753,7 @@ SELECT * FROM SEMANTIC_VIEW(QSAR_DB.PUBLIC.AROMATASE_SV
 
 With the semantic view, search index, and triage procedure ready, deploy the Cortex Agent.
 
-### Deploy the Agent
+### 4.2. Deploy the Agent
 
 **Run this step:** From the repository root in your terminal, run `scripts/deploy_agent.py` with your Snowflake CLI connection name to create `QSAR_DB.PUBLIC.AROMATASE_AGENT` from `agent/aromatase_agent.yaml` and register it with Snowflake Intelligence.
 
@@ -761,7 +769,7 @@ The preview below shows the **Ask an Agent** page answering the measured active 
 
 You can also test candidate triage by asking the agent to rank letrozole (`7.89 Active`, similarity `1.00` to `CHEMBL1444`, passes Rule of Five), caffeine (`5.96 Inactive`, similarity `0.24`, flagged for low similarity), and aspirin (`5.21 Inactive`, similarity `0.35`, flagged for low similarity). Next, run the 15-case evaluation suite to measure the agent's routing and answer quality.
 
-### Evaluate the Agent
+### 4.3. Evaluate the Agent
 
 To evaluate `AROMATASE_AGENT` systematically, the repository provides 15 benchmark questions in `agent/eval_questions.sql` and an evaluation configuration in `agent/eval_config.yaml` (note that the expected prediction numbers in `agent/eval_questions.sql` match the bundled model, so adjust them if you trained on Notebook 01's row order).
 
