@@ -56,10 +56,10 @@ The four-lane architecture diagram below maps every data handoff and calling rou
 
 ![Architecture of the R and Python drug discovery app across four lanes: data preparation and model training, model serving and compound scoring, exploring results in Streamlit, and research Q&A and candidate triage with Cortex Agents](assets/methodology-architecture.png)
 
-1. **Lane 1: Data Preparation and Model Training (`Prepare Training Data`, `Train the R Model`).** Notebook 01 (`01_PREPARE_TRAINING_DATA`) fetches ChEMBL bioactivity records for `CHEMBL1978`, curates 2,751 non-redundant compounds into `CHEMBL1978_COMPOUNDS`, and exports `chembl1978_cleaned.csv` to `@QSAR_STAGE`. The R training script (`docker/train_rcdk.R`) reads that CSV, computes 1,024-bit CDK ECFP4 fingerprints, selects informative bits, and trains the 500-tree `ranger` quantile random forest (`R MODEL ARTIFACTS`).
-2. **Lane 2: Serve Model and Score Compounds (`Serve With R Plumber`, `Connect AI Assistants`, `Score Compounds`).** The saved `.rds` model, ordered `kept_bits.csv` list, and measured fingerprints are packaged into the R Plumber service (`QSAR_PLUMBER_SVC`) on Snowpark Container Services. External AI chat clients (`MCP CLIENT`) connect to `/mcp` over HTTPS using a PAT to invoke the six R tools directly, while shared SQL functions (`sql/functions.sql`) wrap `/sf/*` so Notebook 02 (`02_SCORE_COMPOUNDS`) can batch-score all 2,751 compounds.
-3. **Lane 3: Explore Results (`Build The Streamlit Frontend`).** Notebook 02 writes scored tables (`PREDICTIONS + DESCRIPTORS`) and exports stage summaries (`dashboard_eda.csv`, `dashboard_ro5.csv`, `dashboard_predictions.csv`, `top_features.csv`, and `training_metrics.json`) to `@QSAR_STAGE`. The Streamlit in Snowflake app (`QSAR_AROMATASE_APP`) reads `@QSAR_STAGE` for the Dashboard and About pages and calls `/predict` on `QSAR_PLUMBER_SVC` for Single and Batch Prediction.
-4. **Lane 4: Research Q&A and Candidate Triage (`Ask an Agent`).** `AROMATASE_AGENT` orchestrates Cortex Analyst (`AROMATASE_SV`), Cortex Search (`ASSAY_SEARCH`), the candidate triage procedure (`TRIAGE_COMPOUNDS`, capped at 20 SMILES), and the shared SQL functions to power conversational Q&A and candidate prioritization (`ASK AN AGENT`). Solid arrows denote steps within a lane, while dashed arrows denote cross-lane artifact and service calls.
+1. **Data Preparation and Model Training.** Notebook 01 (`01_PREPARE_TRAINING_DATA`) fetches ChEMBL bioactivity records for `CHEMBL1978`, curates 2,751 non-redundant compounds into `CHEMBL1978_COMPOUNDS`, and exports `chembl1978_cleaned.csv` to `@QSAR_STAGE`. The R training script (`docker/train_rcdk.R`) reads that CSV, computes 1,024-bit CDK ECFP4 fingerprints, selects informative bits, and trains the 500-tree `ranger` quantile random forest (`R MODEL ARTIFACTS`).
+2. **Serve Model and Score Compounds.** The saved `.rds` model, ordered `kept_bits.csv` list, and measured fingerprints are packaged into the R Plumber service (`QSAR_PLUMBER_SVC`) on Snowpark Container Services. External AI chat clients (`MCP CLIENT`) connect to `/mcp` over HTTPS using a PAT to invoke the six R tools directly, while shared SQL functions (`sql/functions.sql`) wrap `/sf/*` so Notebook 02 (`02_SCORE_COMPOUNDS`) can batch-score all 2,751 compounds.
+3. **Explore Results.** Notebook 02 writes scored tables (`PREDICTIONS + DESCRIPTORS`) and exports stage summaries (`dashboard_eda.csv`, `dashboard_ro5.csv`, `dashboard_predictions.csv`, `top_features.csv`, and `training_metrics.json`) to `@QSAR_STAGE`. The Streamlit in Snowflake app (`QSAR_AROMATASE_APP`) reads `@QSAR_STAGE` for the Dashboard and About pages and calls `/predict` on `QSAR_PLUMBER_SVC` for Single and Batch Prediction.
+4. **Research Q&A and Candidate Triage.** `AROMATASE_AGENT` orchestrates Cortex Analyst (`AROMATASE_SV`), Cortex Search (`ASSAY_SEARCH`), the candidate triage procedure (`TRIAGE_COMPOUNDS`, capped at 20 SMILES), and the shared SQL functions to power conversational Q&A and candidate prioritization (`ASK AN AGENT`). Solid arrows denote steps within a lane, while dashed arrows denote cross-lane artifact and service calls.
 
 Now that you have a clear map of the architecture, you can clone the companion repository and provision the Snowflake environment.
 
@@ -501,7 +501,7 @@ invalid           -  Invalid SMILES: not_a_smiles     -     -
 
 If you served the repository's bundled snapshot (or the 180-bit split-first model trained on `data/chembl1978_cleaned.csv`), letrozole (`N#Cc1ccc(cc1)C(n1cncn1)c1ccc(C#N)cc1`) returns `7.89` (`Active`, quantiles `5.79` to `9.22`, corresponding to an approximate `IC50` of `12.9 nM`, compared with its selected measured `pIC50` of `9.15` in `CHEMBL1978_COMPOUNDS`) and exemestane returns `7.00`. In either case, all four valid molecules return numeric predictions and `not_a_smiles` returns an explicit CDK validation error.
 
-Now that `QSAR_PLUMBER_SVC` is running in Lane 2 (`02 SERVE MODEL + SCORE COMPOUNDS`), you can connect external MCP clients to `/mcp` using the same ingress URL and PAT, then create the shared SQL functions and batch-score the cohort.
+Now that `QSAR_PLUMBER_SVC` is running, you can connect external MCP clients to `/mcp` using the same ingress URL and PAT, then create the shared SQL functions and batch-score the cohort.
 
 ## Connect AI Assistants
 
@@ -549,7 +549,7 @@ pIC50:  8.26  (Active)
 IC50 ~  5.5 nM
 ```
 
-See `docs/mcp-walkthrough.md` in the companion repository for additional client examples and an optional Snowflake Native App packaging pattern (`native_app/`). To finish Lane 2 (`02 SERVE MODEL + SCORE COMPOUNDS`), expose `QSAR_PLUMBER_SVC` through shared SQL functions and batch-score the `2,751` curated compounds.
+See `docs/mcp-walkthrough.md` in the companion repository for additional client examples and an optional Snowflake Native App packaging pattern (`native_app/`). Next, expose `QSAR_PLUMBER_SVC` through shared SQL functions and batch-score the `2,751` curated compounds.
 
 ## Score Compounds
 
@@ -626,7 +626,7 @@ SCORED  FAILED  RMSE_ALL  FINGERPRINTS  RO5_PASS
   2751       0     0.469          2751      2652
 ```
 
-Now that `CHEMBL1978_PREDICTIONS`, `CHEMBL1978_FINGERPRINTS`, and `CHEMBL1978_DESCRIPTORS` are populated, you are ready for Lane 3 (`03 EXPLORE RESULTS`), where `@QSAR_STAGE` and `QSAR_AROMATASE_APP` make those results interactive for bench scientists.
+Now that `CHEMBL1978_PREDICTIONS`, `CHEMBL1978_FINGERPRINTS`, and `CHEMBL1978_DESCRIPTORS` are populated, you can stage the remaining dashboard files and deploy `QSAR_AROMATASE_APP` so bench scientists can explore the results interactively.
 
 ## Build The Streamlit Frontend
 
@@ -634,7 +634,7 @@ The Streamlit app (`QSAR_AROMATASE_APP`) gives lab colleagues a browser interfac
 
 ### Stage Dashboard Files
 
-In Lane 3 (`03 EXPLORE RESULTS`), Notebooks 01 and 02 already exported `dashboard_eda.csv`, `dashboard_ro5.csv`, and `dashboard_predictions.csv` to `@QSAR_STAGE`. Upload the remaining model artifacts so the Dashboard and About pages can display feature importances and held-out training metrics alongside the scored predictions.
+Notebooks 01 and 02 already exported `dashboard_eda.csv`, `dashboard_ro5.csv`, and `dashboard_predictions.csv` to `@QSAR_STAGE`. Upload the remaining model artifacts so the Dashboard and About pages can display feature importances and held-out training metrics alongside the scored predictions.
 
 **Run this step:** From your local terminal, upload `top_features.csv` and `training_metrics.json` to `@QSAR_DB.PUBLIC.QSAR_STAGE`.
 
@@ -718,7 +718,7 @@ cd ..
 
 > **Note:** On Single Prediction, optional PubChem compound-name and fallback-image lookups are unchecked by default because enabling them sends a SMILES-derived InChIKey (and potentially the SMILES string) outside Snowflake. Keep that option off when evaluating proprietary structures.
 
-With the Streamlit app running in Lane 3 (`03 EXPLORE RESULTS`), move to Lane 4 (`04 RESEARCH Q&A + CANDIDATE TRIAGE`) to deploy the Cortex Agent that powers conversational research Q&A and multi-compound triage.
+With the Streamlit app running, you can now deploy the Cortex Agent that powers conversational research Q&A and multi-compound triage.
 
 ## Ask an Agent
 
