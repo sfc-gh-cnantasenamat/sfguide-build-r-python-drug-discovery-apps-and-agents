@@ -37,7 +37,7 @@ Now that you know the skills covered in this tutorial, review the prerequisites 
 - Access to a [Snowflake account](https://signup.snowflake.com/?utm_source=snowflake-devrel&utm_medium=developer-guides&utm_cta=developer-guides) with `ACCOUNTADMIN` access for the one-time setup
 - [Docker](https://www.docker.com/) with `linux/amd64` build support
 - [Snowflake CLI](https://docs.snowflake.com/en/developer-guide/snowflake-cli/index) configured with a connection to your account
-- Python 3.11 or later with `requests`, `pandas`, `toml`, `rdkit`, and `snowflake-connector-python`
+- Python 3.11 or later with `requests`, `pandas`, `pyyaml`, `toml`, `rdkit`, and `snowflake-connector-python`
 - Basic familiarity with R, Python, and SQL
 
 With those prerequisites in place, let us look at the architecture and components you will assemble.
@@ -222,13 +222,7 @@ RAW_RECORDS  COMPOUNDS  ACTIVE  ASSAYS  PUBLICATIONS
        3960       2751    1061     313           198
 ```
 
-The local preview below shows the Dataset Overview charts generated from the curated `QSAR_AG` data, illustrating the `pIC50` distribution around the `6.5` threshold and the `38.6%` active vs `61.4%` inactive class balance.
-
-![Local preview of the Dataset Overview: 2,751 compounds, 1,061 active, pIC50 distribution and activity breakdown](assets/dataset-overview-local-preview.png)
-
-Notebook 01 also computes Lipinski Rule-of-Five physicochemical properties (`MW <= 500 Da`, `LogP <= 5`, `HBD <= 5`, `HBA <= 10`) using RDKit. The local preview below renders those descriptor distributions by activity class from the isolated test data.
-
-![Local preview of Rule of Five descriptor summaries and measured compound distributions](assets/rule-of-five-local-preview.png)
+Notebook 01 also computes Lipinski Rule-of-Five physicochemical properties (`MW <= 500 Da`, `LogP <= 5`, `HBD <= 5`, `HBA <= 10`) using RDKit and exports `dashboard_eda.csv` and `dashboard_ro5.csv` to `@QSAR_STAGE` so the Streamlit Dashboard (in Section 3) can render the activity and descriptor distributions without re-querying ChEMBL.
 
 With `2,751` curated aromatase compounds and `chembl1978_cleaned.csv` staged in Snowflake, you are ready to encode the molecular structures and train the quantile random forest in R.
 
@@ -238,10 +232,11 @@ A random forest cannot consume raw SMILES text directly. In this section, you in
 
 #### Get the Training Data
 
-**Run this step:** Download `chembl1978_cleaned.csv` from `@QSAR_DB.PUBLIC.QSAR_STAGE` into your local `data/` directory (or keep the repository's existing `data/chembl1978_cleaned.csv` snapshot if you want to reproduce the bundled model's exact row order).
+**Run this step:** Download `chembl1978_cleaned.csv` from `@QSAR_DB.PUBLIC.QSAR_STAGE` to `/tmp/chembl1978_stage.csv` to confirm the staged export, while keeping `data/chembl1978_cleaned.csv` intact so your training run uses the reference snapshot's exact row order.
 
 ```bash
-snow sql -q "GET @QSAR_DB.PUBLIC.QSAR_STAGE/chembl1978_cleaned.csv file://data/"
+snow sql -q "GET @QSAR_DB.PUBLIC.QSAR_STAGE/chembl1978_cleaned.csv file:///tmp/"
+head -n 2 data/chembl1978_cleaned.csv
 ```
 
 Review the first row of **data/chembl1978_cleaned.csv** below (no action required) to see the schema consumed by R:
@@ -336,21 +331,9 @@ docker run --rm --platform linux/amd64 \
 }
 ```
 
-> **Note:** Always deploy `qsar_aromatase_model.rds` and `kept_bits.csv` as a matched pair, never mixing a model file from one run with the bit list from another. The repository's pre-bundled `docker/` artifacts were produced by an earlier run (`178` bits, `test_r2: 0.6855`, `test_rmse: 0.7708`, or `test_r2: 0.6537` and `test_rmse: 0.7949` when trained on Notebook 01's row order). If you want to serve your freshly trained model, copy all five outputs from `output/` into `docker/` before building the serving image.
+> **Note:** Always deploy `qsar_aromatase_model.rds` and `kept_bits.csv` as a matched pair, never mixing a model file from one run with the bit list from another. The repository's pre-bundled `docker/` artifacts (`178` bits, `test_r2: 0.6855`, `test_rmse: 0.7708`) are already in place and match the exact expected predictions (`7.89` for letrozole) used across Sections 2, 3, and 4, including the 15-question agent evaluation in Section 4.3. Keep the pre-bundled `docker/` files for this walkthrough, or if you later want to promote your freshly trained `output/` artifacts into `docker/`, copy all five files together (`cp output/qsar_aromatase_model_rcdk.rds docker/qsar_aromatase_model.rds && cp output/kept_bits_rcdk.csv docker/kept_bits.csv && cp output/top_features_rcdk.csv output/training_metrics.json output/train_fingerprints.csv docker/`).
 
-**Run this step:** Copy the newly trained model, ordered bit list, top features, metrics, and fingerprints from `output/` into `docker/` if you want the container build to bake in your retrained artifacts (skip this copy if you prefer to deploy the repository's pre-bundled 178-bit artifacts).
-
-```bash
-cp output/qsar_aromatase_model_rcdk.rds docker/qsar_aromatase_model.rds
-cp output/kept_bits_rcdk.csv docker/kept_bits.csv
-cp output/top_features_rcdk.csv output/training_metrics.json output/train_fingerprints.csv docker/
-```
-
-The local preview below illustrates the bundled model's evaluation metrics, predicted-versus-measured scatter plot, residual distribution, and top ECFP4 fingerprint bits ranked by regression impurity importance (`variance` reduction across trees).
-
-![Local preview of bundled model performance, prediction scatter, residual distribution, and regression impurity importance for ECFP4 features](assets/model-performance-local-preview.png)
-
-Having trained the quantile random forest and paired it with its ordered bit list, you can now package and serve the R model as an API on Snowpark Container Services.
+Having trained the quantile random forest and inspected how it pairs with its ordered bit list, you can now package and serve the R model as an API on Snowpark Container Services.
 
 ## 2. Serve Model + Score Compounds
 
@@ -494,20 +477,20 @@ export SNOWFLAKE_PAT="<your-PAT>"
 python scripts/test_endpoint.py
 ```
 
-**Check:** Review the expected terminal output below. When you train on Notebook 01's output, the five test rows return:
+**Check:** Review the expected terminal output below. When serving the bundled `docker/` model, the five test rows return:
 
 ```text
 health: 200 {"status":"ok","trees":500,"features":178}
 
 compound      pIC50  class        q05   q95
-letrozole      8.26  Active      5.79  9.22
-anastrozole    8.64  Active      6.95  9.53
-exemestane     6.21  Inactive    4.96  7.83
-ethanol        5.21  Inactive    4.22  6.92
+letrozole      7.89  Active      5.79  9.22
+anastrozole    8.64  Active      7.03 10.00
+exemestane     7.00  Active      5.42  7.82
+ethanol        5.11  Inactive    4.22  6.92
 invalid           -  Invalid SMILES: not_a_smiles     -     -
 ```
 
-If you served the repository's bundled snapshot (or the 180-bit split-first model trained on `data/chembl1978_cleaned.csv`), letrozole (`N#Cc1ccc(cc1)C(n1cncn1)c1ccc(C#N)cc1`) returns `7.89` (`Active`, quantiles `5.79` to `9.22`, corresponding to an approximate `IC50` of `12.9 nM`, compared with its selected measured `pIC50` of `9.15` in `CHEMBL1978_COMPOUNDS`) and exemestane returns `7.00`. In either case, all four valid molecules return numeric predictions and `not_a_smiles` returns an explicit CDK validation error.
+Letrozole (`N#Cc1ccc(cc1)C(n1cncn1)c1ccc(C#N)cc1`) returns `7.89` (`Active`, quantiles `5.79` to `9.22`, corresponding to an approximate `IC50` of `12.9 nM`, compared with its selected measured `pIC50` of `9.15` in `CHEMBL1978_COMPOUNDS`) and exemestane returns `7.00` (if you instead promoted a model trained on Notebook 01's row order, letrozole returns `8.26` and exemestane returns `6.21`). In either case, all four valid molecules return numeric predictions and `not_a_smiles` returns an explicit CDK validation error.
 
 Now that `QSAR_PLUMBER_SVC` is running, you can connect external MCP clients to `/mcp` using the same ingress URL and PAT, then create the shared SQL functions and batch-score the cohort.
 
@@ -548,13 +531,13 @@ Because MCP returns structured tool data directly from the R service, the AI cli
 }
 ```
 
-**Check:** Reconnect the server (`cortex mcp reconnect qsar-aromatase` in Cortex Code, confirming 6 tools load) and ask: "Predict the aromatase activity of letrozole, SMILES `N#Cc1ccc(cc1)C(n1cncn1)c1ccc(C#N)cc1`". Review the expected `predict_pic50` tool output below (from the notebook-trained model; the bundled model returns `7.89` and `[5.79, 9.22]`):
+**Check:** Reconnect the server (`cortex mcp reconnect qsar-aromatase` in Cortex Code, confirming 6 tools load) and ask: "Predict the aromatase activity of letrozole, SMILES `N#Cc1ccc(cc1)C(n1cncn1)c1ccc(C#N)cc1`". Review the expected `predict_pic50` tool output below (from the bundled model; a model trained on Notebook 01's row order returns `8.26`):
 
 ```text
 SMILES: N#Cc1ccc(cc1)C(n1cncn1)c1ccc(C#N)cc1
-pIC50:  8.26  (Active)
+pIC50:  7.89  (Active)
 90% CI: [5.79, 9.22]
-IC50 ~  5.5 nM
+IC50 ~  12.9 nM
 ```
 
 See `docs/mcp-walkthrough.md` in the companion repository for additional client examples and an optional Snowflake Native App packaging pattern (`native_app/`). Next, expose `QSAR_PLUMBER_SVC` through shared SQL functions and batch-score the `2,751` curated compounds.
@@ -708,9 +691,13 @@ cd ..
 
 **Check:** Open the URL printed by `snow streamlit deploy` (the first load takes one to two minutes while container dependencies install) and verify each page:
 
-1. **Dashboard:** Inspect the measured activity distribution and class balance for the `2,751` curated ChEMBL compounds before scoring individual molecules.
+1. **Dashboard:** Inspect the measured activity distribution and class balance (`2,751` compounds, `1,061` active vs `1,690` inactive), Lipinski Rule-of-Five descriptor compliance (`MW <= 500 Da`, `LogP <= 5`, `HBD <= 5`, `HBA <= 10`), and the random forest's evaluation metrics, residual distribution, and top ECFP4 fingerprint bits ranked by regression impurity importance.
 
-![Local preview of the Dataset Overview: 2,751 compounds, 1,061 active, pIC50 distribution and activity breakdown](assets/dataset-overview-local-preview.png)
+![Dataset Overview section on the Dashboard showing 2,751 compounds, 1,061 active, pIC50 distribution, and activity class breakdown](assets/dataset-overview-local-preview.png)
+
+![Lipinski Rule of Five section on the Dashboard showing median physicochemical descriptors and compliance by activity class](assets/rule-of-five-local-preview.png)
+
+![Model Performance and Feature Importance sections on the Dashboard showing R2, RMSE, predicted-versus-actual scatter, residual distribution, and top ECFP4 bits](assets/model-performance-local-preview.png)
 
 2. **Single Prediction:** Select an example molecule such as **letrozole** or **aspirin** (or paste a SMILES string) and click **Predict pIC50**. The first image below shows letrozole (`CHEMBL1444`) scored at `7.89` (`Active`, uncalibrated quantiles `5.79` to `9.22`), followed by aspirin scored at `5.21` (`Inactive`, uncalibrated quantiles `4.26` to `6.92`).
 
@@ -759,17 +746,17 @@ With the semantic view, search index, and triage procedure ready, deploy the Cor
 
 ### 4.2. Deploy the Agent
 
-**Run this step:** From the repository root in your terminal, run `scripts/deploy_agent.py` with your Snowflake CLI connection name to create `QSAR_DB.PUBLIC.AROMATASE_AGENT` from `agent/aromatase_agent.yaml` and register it with Snowflake Intelligence.
+**Run this step:** From the repository root in your terminal, run `scripts/deploy_agent.py` to create `QSAR_DB.PUBLIC.AROMATASE_AGENT` from `agent/aromatase_agent.yaml` and register it with Snowflake Intelligence (pass `--connection <your_connection>` with a connection name from `~/.snowflake/config.toml`, or omit `--connection` to use your `default_connection_name`).
 
 ```bash
 python scripts/deploy_agent.py --connection <your_connection>
 ```
 
-**Check:** Restart or redeploy the Streamlit app so the **Ask an Agent** page appears in the sidebar, and ask: "How many measured aromatase compounds are active and inactive?" Cortex Analyst queries `AROMATASE_SV` and returns `1,061` measured active and `1,690` measured inactive compounds out of `2,751` total.
+**Check:** Reload the Streamlit app tab in your browser so the **Ask an Agent** page appears in the sidebar, and ask: "How many measured aromatase compounds are active and inactive?" Cortex Analyst queries `AROMATASE_SV` and returns `1,061` measured active and `1,690` measured inactive compounds out of `2,751` total.
 
-The preview below shows the **Ask an Agent** page answering the measured active and inactive compound count question.
+The screenshot below shows the **Ask an Agent** page answering the measured active and inactive compound count question.
 
-![Local preview of the isolated Cortex Agent answering the measured active and inactive compound question](assets/agent-answer-local-preview.png)
+![Ask an Agent page showing AROMATASE_AGENT answering the measured active and inactive compound count question](assets/agent-answer-local-preview.png)
 
 You can also test candidate triage by asking the agent to rank letrozole (`7.89 Active`, similarity `1.00` to `CHEMBL1444`, passes Rule of Five), caffeine (`5.96 Inactive`, similarity `0.24`, flagged for low similarity), and aspirin (`5.21 Inactive`, similarity `0.35`, flagged for low similarity). Next, run the 15-case evaluation suite to measure the agent's routing and answer quality.
 
@@ -921,6 +908,9 @@ Next, explore the companion source code, Snowflake documentation, and published 
 - [Access a Public Endpoint Programmatically](https://docs.snowflake.com/en/developer-guide/snowpark-container-services/tutorials/advanced/tutorial-8-access-public-endpoint-programmatically)
 - [Programmatic Access Tokens](https://docs.snowflake.com/en/user-guide/programmatic-access-tokens)
 - [Streamlit in Snowflake Documentation](https://docs.snowflake.com/en/developer-guide/streamlit/about-streamlit)
+- [Cortex Agents Documentation](https://docs.snowflake.com/en/user-guide/snowflake-cortex/cortex-agents)
+- [Cortex Analyst Semantic Views](https://docs.snowflake.com/en/user-guide/views-semantic/overview)
+- [Cortex Search Overview](https://docs.snowflake.com/en/user-guide/snowflake-cortex/cortex-search/cortex-search-overview)
 
 **Research Papers**
 - [Schaduangrat N, Lampa S, Simeon S, Gleeson MP, Spjuth O, Nantasenamat C. Towards reproducible computational drug discovery. J Cheminform (2020)](https://link.springer.com/article/10.1186/s13321-020-0408-x)
