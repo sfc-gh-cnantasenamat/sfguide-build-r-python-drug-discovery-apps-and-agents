@@ -6,7 +6,7 @@ summary: Train an R QSAR model for aromatase inhibition, serve it with R Plumber
 environments: web
 status: Published
 feedback link: https://github.com/Snowflake-Labs/sfquickstarts/issues
-fork repo link: https://github.com/sfc-gh-cnantasenamat/qsar-r-py-snowflake
+fork repo link: https://github.com/sfc-gh-cnantasenamat/build-r-python-drug-discovery-apps-and-agents
 
 # Build R and Python Powered Drug Discovery Apps and Agents on Snowflake
 
@@ -72,8 +72,8 @@ Before running any notebooks or container builds, you need a local copy of the p
 **Run this step:** Open a terminal and clone the companion repository to your local machine.
 
 ```bash
-git clone https://github.com/sfc-gh-cnantasenamat/qsar-r-py-snowflake.git
-cd qsar-r-py-snowflake
+git clone https://github.com/sfc-gh-cnantasenamat/build-r-python-drug-discovery-apps-and-agents.git
+cd build-r-python-drug-discovery-apps-and-agents
 ```
 
 The repository is organized by architectural layer:
@@ -840,7 +840,7 @@ Congratulations! You've successfully taken an R-based drug discovery model from 
 Next, explore the companion source code, Snowflake documentation, and published aromatase QSAR literature below to build on this workflow.
 
 ### Related Resources
-- [Companion GitHub Repository: qsar-r-py-snowflake](https://github.com/sfc-gh-cnantasenamat/qsar-r-py-snowflake)
+- [Companion GitHub Repository: build-r-python-drug-discovery-apps-and-agents](https://github.com/sfc-gh-cnantasenamat/build-r-python-drug-discovery-apps-and-agents)
 - [Snowpark Container Services Overview](https://docs.snowflake.com/en/developer-guide/snowpark-container-services/overview)
 - [Access a Public Endpoint Programmatically](https://docs.snowflake.com/en/developer-guide/snowpark-container-services/tutorials/advanced/tutorial-8-access-public-endpoint-programmatically)
 - [Programmatic Access Tokens](https://docs.snowflake.com/en/user-guide/programmatic-access-tokens)
