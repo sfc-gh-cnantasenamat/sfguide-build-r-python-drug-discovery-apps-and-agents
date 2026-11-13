@@ -678,7 +678,11 @@ resp = requests.post(
     timeout=60,
 )
 resp.raise_for_status()
-_, pic50, activity, ci_lo, ci_hi = resp.json()["data"][0]
+rows = resp.json().get("data", [])
+if not rows:
+    st.error("Service returned no results.")
+    return None
+_, pic50, activity, ci_lo, ci_hi = rows[0]
 ```
 
 When running in Snowflake, `streamlit/_shared.py` discovers the service's internal DNS name automatically via `SHOW SERVICES`, so no hardcoded URL is needed. Next, deploy the Streamlit application.
