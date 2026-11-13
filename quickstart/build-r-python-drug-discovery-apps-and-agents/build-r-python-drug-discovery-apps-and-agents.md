@@ -742,11 +742,9 @@ python scripts/deploy_agent.py --connection <your_connection>
 
 **Check:** Restart or redeploy the Streamlit app so the conditional **Ask an Agent** page appears in the sidebar, and ask: "How many measured aromatase compounds are active and inactive?" Cortex Analyst queries `AROMATASE_SV` and returns `1,061` measured active and `1,690` measured inactive compounds out of `2,751` total.
 
-The first image below is a local preview of the isolated `QSAR_AG` agent response, followed by a cropped screenshot captured from the deployed Streamlit app's **Ask an Agent** page answering the measured active and inactive count question.
+The preview below shows the **Ask an Agent** page answering the measured active and inactive compound count question.
 
 ![Local preview of the isolated Cortex Agent answering the measured active and inactive compound question](assets/agent-answer-local-preview.png)
-
-![Cropped Ask an Agent view captured from the deployed Streamlit app showing 1,061 measured active and 1,690 measured inactive compounds](assets/app-agent.png)
 
 You can also test candidate triage by asking the agent to rank letrozole (`7.89 Active`, similarity `1.00` to `CHEMBL1444`, passes Rule of Five), caffeine (`5.96 Inactive`, similarity `0.24`, flagged for low similarity), and aspirin (`5.21 Inactive`, similarity `0.35`, flagged for low similarity). Next, run the 15-case evaluation suite to measure the agent's routing and answer quality.
 
