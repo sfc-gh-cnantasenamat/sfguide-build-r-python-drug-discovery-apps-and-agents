@@ -635,25 +635,25 @@ cd ..
 
 **Check:** Open the URL printed by `snow streamlit deploy` (the first load takes one to two minutes while container dependencies install) and verify each page:
 
-1. **Dashboard:** Inspect the measured activity distribution and class balance for the `2,751` curated ChEMBL compounds before scoring individual molecules. The screenshot below is captured from the deployed Streamlit app in Snowflake.
+1. **Dashboard:** Inspect the measured activity distribution and class balance for the `2,751` curated ChEMBL compounds before scoring individual molecules.
 
-![Cropped Dashboard view captured from the deployed Streamlit app showing 2,751 measured ChEMBL compounds and activity charts](assets/app-dashboard.png)
+![Local preview of the Dataset Overview: 2,751 compounds, 1,061 active, pIC50 distribution and activity breakdown](assets/dataset-overview-local-preview.png)
 
-2. **Single Prediction:** Select an example molecule such as **letrozole** or **aspirin** (or paste a SMILES string) and click **Predict pIC50**. The first image below is a local preview showing letrozole (`CHEMBL1444`) scored at `7.89` (`Active`, uncalibrated quantiles `5.79` to `9.22`), followed by a screenshot captured from the deployed Streamlit app scoring aspirin at `5.21` (`Inactive`).
+2. **Single Prediction:** Select an example molecule such as **letrozole** or **aspirin** (or paste a SMILES string) and click **Predict pIC50**. The first image below shows letrozole (`CHEMBL1444`) scored at `7.89` (`Active`, uncalibrated quantiles `5.79` to `9.22`), followed by aspirin scored at `5.21` (`Inactive`, uncalibrated quantiles `4.26` to `6.92`).
 
 ![Local preview of a bundled-model letrozole pIC50 prediction, molecular structure and uncalibrated quantiles](assets/single-prediction-local-preview.png)
 
-![Cropped Single Prediction view captured from the deployed Streamlit app showing aspirin at predicted pIC50 5.21](assets/app-single.png)
+![Single Prediction view showing aspirin at predicted pIC50 5.21 with its 2D structure and uncalibrated quantiles](assets/app-single.png)
 
-3. **Batch Prediction:** Submit multiple SMILES strings at once to compare predicted `pIC50`, activity labels, and quantile ranges in a single table. Below are the five-compound local preview and a cropped capture from the deployed Streamlit app comparing aspirin (`5.21`) and caffeine (`5.96`).
+3. **Batch Prediction:** Submit multiple SMILES strings at once to compare predicted `pIC50`, activity labels, and quantile ranges in a single table. Below are the five-compound batch run and a two-compound run comparing aspirin (`5.21`) and caffeine (`5.96`).
 
 ![Local preview of five batch predictions from bundled-model examples](assets/batch-prediction-local-preview.png)
 
-![Cropped Batch Prediction table captured from the deployed Streamlit app for aspirin and caffeine](assets/app-batch.png)
+![Batch Prediction view comparing aspirin and caffeine](assets/app-batch.png)
 
-4. **About:** Review the target biology (`CYP19A1` / `CHEMBL1978`), dataset summary, 1,024-bit ECFP4 fingerprint encoding, `ranger` quantile forest parameters, and Snowpark Container Services architecture on the About page, shown in the deployed app capture below.
+4. **About:** Review the target biology (`CYP19A1` / `CHEMBL1978`), dataset summary, 1,024-bit ECFP4 fingerprint encoding, `ranger` quantile forest parameters, and Snowpark Container Services architecture on the About page.
 
-![Cropped About page captured from the deployed Streamlit app showing target, dataset, and fingerprint details](assets/app-about.png)
+![About page showing target, dataset, fingerprint, and model details](assets/app-about.png)
 
 > **Note:** On Single Prediction, optional PubChem compound-name and fallback-image lookups are unchecked by default because enabling them sends a SMILES-derived InChIKey (and potentially the SMILES string) outside Snowflake. Keep that option off when evaluating proprietary structures.
 
