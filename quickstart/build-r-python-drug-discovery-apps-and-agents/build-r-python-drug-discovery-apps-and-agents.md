@@ -197,18 +197,26 @@ Once the notebook run finishes, verify the curated table counts and stage output
 
 ### Check the Result
 
-**Check:** Run the query below in Snowsight to confirm that `CHEMBL1978_COMPOUNDS` contains `2,751` compounds and `1,061` active molecules (from ChEMBL 37; a newer ChEMBL release can change these counts).
+**Check:** Run the query below in Snowsight to confirm that the Notebook 01 curation pipeline populated `3,960` raw `IC50` records, `2,751` deduplicated compounds, `1,061` active molecules, `313` assays, and `198` publications (from ChEMBL 37; a newer ChEMBL release can change these counts).
 
 ```sql
 USE ROLE QSAR_ROLE;
 USE WAREHOUSE QSAR_WH;
-SELECT COUNT(*) AS N_COMPOUNDS, SUM(ACTIVITY_CLASS) AS N_ACTIVE
-FROM QSAR_DB.PUBLIC.CHEMBL1978_COMPOUNDS;
+SELECT
+    (SELECT COUNT(*) FROM QSAR_DB.PUBLIC.CHEMBL1978_RAW_ACTIVITIES)      AS RAW_RECORDS,
+    (SELECT COUNT(*) FROM QSAR_DB.PUBLIC.CHEMBL1978_COMPOUNDS)           AS COMPOUNDS,
+    (SELECT SUM(ACTIVITY_CLASS) FROM QSAR_DB.PUBLIC.CHEMBL1978_COMPOUNDS) AS ACTIVE,
+    (SELECT COUNT(*) FROM QSAR_DB.PUBLIC.CHEMBL1978_ASSAYS)              AS ASSAYS,
+    (SELECT COUNT(*) FROM QSAR_DB.PUBLIC.CHEMBL1978_DOCUMENTS)           AS PUBLICATIONS;
 ```
 
-The image below is a locally rendered summary of the verified table counts (`3,960` raw `IC50` records, `2,751` curated compounds, `1,061` active compounds, `313` assays, and `198` publications) from the isolated `QSAR_AG` test environment, rather than a Snowsight worksheet screenshot.
+Review the expected query output below (no action required):
 
-![Local result rendering of 3,960 raw IC50 records, 2,751 compounds, 1,061 active compounds, 313 assays and 198 publications](assets/training-data-check-local-preview.png)
+```text
+RAW_RECORDS  COMPOUNDS  ACTIVE  ASSAYS  PUBLICATIONS
+-----------  ---------  ------  ------  ------------
+       3960       2751    1061     313           198
+```
 
 The local preview below shows the Dataset Overview charts generated from the curated `QSAR_AG` data, illustrating the `pIC50` distribution around the `6.5` threshold and the `38.6%` active vs `61.4%` inactive class balance.
 
@@ -334,13 +342,9 @@ cp output/kept_bits_rcdk.csv docker/kept_bits.csv
 cp output/top_features_rcdk.csv output/training_metrics.json output/train_fingerprints.csv docker/
 ```
 
-The local preview below illustrates the bundled model's predicted-versus-measured scatter plot and residual distribution from the isolated `QSAR_AG` dashboard files.
+The local preview below illustrates the bundled model's evaluation metrics, predicted-versus-measured scatter plot, residual distribution, and top ECFP4 fingerprint bits ranked by regression impurity importance (`variance` reduction across trees).
 
-![Local preview of bundled model performance, prediction scatter and residual distribution](assets/model-performance-local-preview.png)
-
-The local preview below shows the top ECFP4 fingerprint bits ranked by regression impurity importance (`variance` reduction across trees).
-
-![Local preview of regression impurity importance for the bundled model's ECFP4 features](assets/feature-importance-local-preview.png)
+![Local preview of bundled model performance, prediction scatter, residual distribution, and regression impurity importance for ECFP4 features](assets/model-performance-local-preview.png)
 
 Having trained the quantile random forest and paired it with its ordered bit list, you can now package and serve the R model as an API on Snowpark Container Services.
 
@@ -462,10 +466,6 @@ Warming up rcdk JVM...
 Plumber API ready — listening on port 5000
 ```
 
-The locally rendered preview below shows the service's letrozole prediction (`pIC50` `7.89`, `Active`, quantile range `5.79` to `9.22`) and top ECFP4 bit explanation (`bit_319`) from the isolated test environment.
-
-![Local result rendering of the R service letrozole prediction, quantile range and top triazole ECFP4 bit](assets/service-check-local-preview.png)
-
 With the service running and its public ingress URL available, verify external HTTPS access with the smoke test script.
 
 ### Call the Endpoint
@@ -545,7 +545,29 @@ CREATE OR REPLACE FUNCTION PREDICT_PIC50(smiles VARCHAR)
   ENDPOINT = api MAX_BATCH_ROWS = 50 AS '/sf/predict';
 ```
 
-**Run this step:** Open `sql/functions.sql` in a Snowsight SQL worksheet and run the entire script under `QSAR_ROLE`. It creates four R-backed service functions (`PREDICT_PIC50`, `ECFP4`, `SIMILAR_COMPOUNDS`, and `EXPLAIN_PREDICTION`) plus an RDKit Python user-defined function (`RO5`, pinned to `rdkit==2025.09.3` via Snowflake's PyPI artifact repository). Confirm that the verification query at the end of `sql/functions.sql` returns a letrozole `pIC50` prediction (`7.89` with the bundled model).
+**Run this step:** Open `sql/functions.sql` in a Snowsight SQL worksheet and run the entire script under `QSAR_ROLE`. It creates four R-backed service functions (`PREDICT_PIC50`, `ECFP4`, `SIMILAR_COMPOUNDS`, and `EXPLAIN_PREDICTION`) plus an RDKit Python user-defined function (`RO5`, pinned to `rdkit==2025.09.3` via Snowflake's PyPI artifact repository).
+
+**Check:** Run the query below in Snowsight to verify that `PREDICT_PIC50` and `EXPLAIN_PREDICTION` return letrozole's predicted `pIC50`, quantile interval, and top ECFP4 bit explanation from the R container service.
+
+```sql
+USE ROLE QSAR_ROLE;
+USE WAREHOUSE QSAR_WH;
+SELECT
+    PREDICT_PIC50('N#Cc1ccc(cc1)C(n1cncn1)c1ccc(C#N)cc1'):pIC50::FLOAT             AS PIC50,
+    PREDICT_PIC50('N#Cc1ccc(cc1)C(n1cncn1)c1ccc(C#N)cc1'):activity::STRING          AS CLASS,
+    PREDICT_PIC50('N#Cc1ccc(cc1)C(n1cncn1)c1ccc(C#N)cc1'):q05::FLOAT                AS Q05,
+    PREDICT_PIC50('N#Cc1ccc(cc1)C(n1cncn1)c1ccc(C#N)cc1'):q95::FLOAT                AS Q95,
+    EXPLAIN_PREDICTION('N#Cc1ccc(cc1)C(n1cncn1)c1ccc(C#N)cc1', 3):top_features[0]:bit::STRING      AS TOP_FEATURE,
+    EXPLAIN_PREDICTION('N#Cc1ccc(cc1)C(n1cncn1)c1ccc(C#N)cc1', 3):top_features[0]:fragment::STRING AS FRAGMENT;
+```
+
+Review the expected query output below when serving the bundled model (no action required):
+
+```text
+PIC50  CLASS   Q05   Q95   TOP_FEATURE  FRAGMENT
+-----  ------  ----  ----  -----------  --------
+ 7.89  Active  5.79  9.22  bit_319      [N]C=[N]
+```
 
 **Run this step:** Execute `02_score_compounds.ipynb` in Snowsight to score all `2,751` compounds in `CHEMBL1978_COMPOUNDS` using the SQL functions, populate `CHEMBL1978_PREDICTIONS`, `CHEMBL1978_FINGERPRINTS`, and `CHEMBL1978_DESCRIPTORS`, and write `dashboard_predictions.csv` to `@QSAR_STAGE`.
 
@@ -560,9 +582,25 @@ EXECUTE NOTEBOOK PROJECT QSAR_DB.PUBLIC.QSAR_NOTEBOOKS
     EXTERNAL_ACCESS_INTEGRATIONS = (QSAR_NB_EAI);
 ```
 
-**Check:** In the isolated test run, all `2,751` compounds scored with zero null predictions and `2,652` Lipinski Rule-of-Five passes (the `0.469` RMSE across all `2,751` rows combines training and test molecules and is not a held-out test metric). The image below is a local rendering of that verification query result.
+**Check:** Run the verification query below in Snowsight to confirm that all `2,751` compounds scored with zero null predictions and `2,652` Lipinski Rule-of-Five passes.
 
-![Local result rendering of 2,751 successful scoring rows, 2,751 fingerprints and 2,652 Rule of Five passes](assets/scoring-check-local-preview.png)
+```sql
+SELECT
+    COUNT(*) AS SCORED,
+    COUNT_IF(PRED_PIC50 IS NULL) AS FAILED,
+    ROUND(SQRT(AVG(SQUARE(ERROR))), 3) AS RMSE_ALL,
+    (SELECT COUNT(*) FROM QSAR_DB.PUBLIC.CHEMBL1978_FINGERPRINTS) AS FINGERPRINTS,
+    (SELECT COUNT_IF(RO5_PASS) FROM QSAR_DB.PUBLIC.CHEMBL1978_DESCRIPTORS) AS RO5_PASS
+FROM QSAR_DB.PUBLIC.CHEMBL1978_PREDICTIONS;
+```
+
+Review the expected query output below (no action required; `RMSE_ALL` combines training and test rows across all `2,751` molecules and is not a held-out test metric):
+
+```text
+SCORED  FAILED  RMSE_ALL  FINGERPRINTS  RO5_PASS
+------  ------  --------  ------------  --------
+  2751       0     0.469          2751      2652
+```
 
 **Run this step:** From your local terminal, upload `top_features.csv` and `training_metrics.json` to `@QSAR_DB.PUBLIC.QSAR_STAGE` so the Dashboard and About pages can display feature importances and model metrics.
 
@@ -744,16 +782,26 @@ CALL EXECUTE_AI_EVALUATION('STATUS', OBJECT_CONSTRUCT('run_name', 'aromatase-gui
 **Check:** Once `STATUS` reports `COMPLETED`, query the evaluation metrics in SQL (for repeat runs on the same dataset, remove the `dataset` block from `eval_config.yaml` and pick a new `run_name`).
 
 ```sql
-SELECT INPUT, METRIC_NAME, EVAL_AGG_SCORE, METRIC_STATUS
+SELECT
+    METRIC_NAME,
+    COUNT(*) AS SCORED,
+    ROUND(AVG(EVAL_AGG_SCORE), 3) AS MEAN_SCORE
 FROM TABLE(SNOWFLAKE.LOCAL.GET_AI_EVALUATION_DATA(
   'QSAR_DB', 'PUBLIC', 'AROMATASE_AGENT', 'CORTEX AGENT', 'aromatase-guide-eval'))
 WHERE METRIC_NAME IS NOT NULL
-ORDER BY INPUT, METRIC_NAME;
+GROUP BY METRIC_NAME
+ORDER BY METRIC_NAME;
 ```
 
-In the isolated prototype run (`aromatase_verified_20261108`), all 15 evaluation cases completed with mean answer correctness `0.956`, logical consistency `0.956`, and tool selection `0.967`, as shown in the local result rendering below. Remember that these scores measure agent tool routing and response fidelity, not the chemical accuracy of the underlying QSAR forest.
+Review the expected summary output below from a completed 15-case evaluation run (no action required; these scores measure agent tool routing and response fidelity rather than the chemical accuracy of the underlying QSAR forest):
 
-![Local result rendering of the completed 15-case Cortex Agent evaluation and its three mean scores](assets/agent-evaluation-local-preview.png)
+```text
+METRIC_NAME              SCORED  MEAN_SCORE
+-----------------------  ------  ----------
+answer_correctness           15       0.956
+logical_consistency          15       0.956
+tool_selection_accuracy      15       0.967
+```
 
 Before sharing the app, MCP server, or agent with other scientists, review the statistical, operational, and governance boundaries of this system.
 
