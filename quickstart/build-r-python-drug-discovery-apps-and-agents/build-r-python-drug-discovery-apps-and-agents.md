@@ -6,7 +6,7 @@ summary: Train an R QSAR model for aromatase inhibition, serve it with R Plumber
 environments: web
 status: Published
 feedback link: https://github.com/Snowflake-Labs/sfquickstarts/issues
-fork repo link: https://github.com/sfc-gh-cnantasenamat/build-r-python-drug-discovery-apps-and-agents
+fork repo link: https://github.com/sfc-gh-cnantasenamat/bioinformatics/tree/main/r-python-drug-discovery
 
 # Build R and Python Powered Drug Discovery Apps and Agents on Snowflake
 
@@ -69,14 +69,14 @@ Before running any notebooks or container builds, you need a local copy of the p
 
 ### Clone the Repository
 
-**Run this step:** Open a terminal and clone the companion repository to your local machine.
+**Run this step:** Open a terminal, clone the companion repository to your local machine, and change into the `r-python-drug-discovery` project directory.
 
 ```bash
-git clone https://github.com/sfc-gh-cnantasenamat/build-r-python-drug-discovery-apps-and-agents.git
-cd build-r-python-drug-discovery-apps-and-agents
+git clone https://github.com/sfc-gh-cnantasenamat/bioinformatics.git
+cd bioinformatics/r-python-drug-discovery
 ```
 
-The repository is organized by architectural layer:
+The `r-python-drug-discovery` directory is organized by architectural layer:
 
 | Folder | Contents |
 |---|---|
@@ -899,7 +899,7 @@ Next, explore the companion source code, Snowflake documentation, and published 
 ### Related Resources
 
 **Project and Biological Data**
-- [Companion GitHub Repository: build-r-python-drug-discovery-apps-and-agents](https://github.com/sfc-gh-cnantasenamat/build-r-python-drug-discovery-apps-and-agents)
+- [Companion GitHub Repository: bioinformatics/r-python-drug-discovery](https://github.com/sfc-gh-cnantasenamat/bioinformatics/tree/main/r-python-drug-discovery)
 - [ChEMBL Bioactivity Database (Target CHEMBL1978)](https://www.ebi.ac.uk/chembl/)
 - [RCSB Protein Data Bank Structure 3EQM: Human Placental Aromatase](https://www.rcsb.org/structure/3EQM)
 
