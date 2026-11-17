@@ -69,7 +69,7 @@ Before running any notebooks or container builds, you need a local copy of the p
 
 ### Create Working Directory
 
-The setup script creates all 40 project files (`data/`, `docker/`, `streamlit/`, `notebooks/`, `native_app/`, `scripts/`, `sql/`, `agent/`, `docs/`, and `tests/`) directly on your computer inside `bioinformatics/r-python-drug-discovery`. All file contents (including the bundled `.rds` model and `CHEMBL1978` snapshot) are included in the script, so folder setup works offline without cloning a separate repository.
+The setup script creates all 37 project files (`data/`, `docker/`, `streamlit/`, `notebooks/`, `native_app/`, `scripts/`, `sql/`, `agent/`, and `docs/`) directly on your computer inside `bioinformatics/r-python-drug-discovery`. All file contents (including the bundled `.rds` model and `CHEMBL1978` snapshot) are included in the script, so folder setup works offline without cloning a separate repository.
 
 Open [setup_r_python_drug_discovery.sh](https://github.com/sfc-gh-cnantasenamat/sfguide-build-r-python-drug-discovery-apps-and-agents/blob/main/quickstart/build-r-python-drug-discovery-apps-and-agents/src/setup_r_python_drug_discovery.sh) and use GitHub's **Download raw file** button to save it in your chosen local working directory. The script is bundled in this guide's `src/` folder, alongside `assets/`. If you already downloaded the guide files, copy `src/setup_r_python_drug_discovery.sh` into your chosen working directory instead (or if the companion repository is already live, you can run `git clone https://github.com/sfc-gh-cnantasenamat/bioinformatics.git`).
 
@@ -84,7 +84,7 @@ pwd
 Review the expected setup output below (no action required; no Snowflake statements or container builds have run yet, and all subsequent relative file paths in this guide run from `bioinformatics/r-python-drug-discovery`):
 
 ```text
-Created 40 project files in bioinformatics/r-python-drug-discovery.
+Created 37 project files in bioinformatics/r-python-drug-discovery.
 No Snowflake statements or container builds were executed.
 ```
 

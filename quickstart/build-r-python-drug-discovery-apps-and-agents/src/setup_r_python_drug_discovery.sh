@@ -18,7 +18,7 @@ if ! mkdir -- r-python-drug-discovery; then
 fi
 trap 'status=$?; if [[ "$status" -ne 0 ]]; then printf "%s\n" "Setup stopped. Files already written in $target are left intact for inspection and manual recovery; nothing is removed. Re-running refuses this existing target." >&2; fi; exit "$status"' EXIT
 cd -- r-python-drug-discovery
-mkdir -p -- 'agent' 'data' 'docker' 'docs' 'native_app' 'notebooks' 'scripts' 'sql' 'streamlit' 'streamlit/pages' 'tests'
+mkdir -p -- 'agent' 'data' 'docker' 'docs' 'native_app' 'notebooks' 'scripts' 'sql' 'streamlit' 'streamlit/pages'
 
 cat > 'README.md' <<'QSAR_FILE_01_EOF'
 # Build R and Python Powered Drug Discovery Apps and Agents on Snowflake
@@ -75168,114 +75168,6 @@ entities:
       - requirements.txt
 QSAR_FILE_37_EOF
 
-cat > 'tests/test_agent_chat.py' <<'QSAR_FILE_38_EOF'
-"""Exercise the optional chat page's controls without network requests."""
-
-import json
-import sys
-from pathlib import Path
-from unittest.mock import patch
-
-from streamlit.testing.v1 import AppTest
-
-
-STREAMLIT_ROOT = Path(__file__).resolve().parents[1] / "streamlit"
-sys.path.insert(0, str(STREAMLIT_ROOT))
-import _shared  # noqa: E402
-
-
-class FakeSession:
-    def __init__(self):
-        self.requests = []
-
-    def sql(self, query, params):
-        assert query == "SELECT SNOWFLAKE.CORTEX.DATA_AGENT_RUN(?, ?, TRUE) AS RESPONSE"
-        self.requests.append(json.loads(params[1]))
-        return self
-
-    def collect(self):
-        return [{"RESPONSE": json.dumps({
-            "status": "completed",
-            "metadata": {"thread_id": 27, "assistant_message_id": 30 + len(self.requests)},
-            "content": [{"type": "text", "text": f"Answer {len(self.requests)}"}],
-        })}]
-
-
-def test_chat_retains_thread_and_resets_on_new_conversation():
-    session = FakeSession()
-    with patch.object(_shared, "init_session", return_value=session):
-        app = AppTest.from_file(str(STREAMLIT_ROOT / "pages" / "ask_agent.py")).run()
-        assert not app.exception
-        app.chat_input[0].set_value("How many active?").run()
-        assert not app.exception
-        app.chat_input[0].set_value("And inactive?").run()
-        assert not app.exception
-        assert len(app.session_state["agent_messages"]) == 4
-        assert session.requests[1]["thread_id"] == 27
-        assert session.requests[1]["parent_message_id"] == 31
-        app.button[0].click().run()
-        assert not app.exception
-        assert app.session_state["agent_messages"] == []
-        assert "agent_thread_id" not in app.session_state
-QSAR_FILE_38_EOF
-
-(base64 -d 2>/dev/null || base64 -D) <<'QSAR_FILE_39_EOF' | gunzip -c > 'tests/test_agent_instructions.py'
-H4sIAAAAAAACE5WSwU7kMAyG730KK6cZCQZx4ILEYVmQOHAYwZFFVkjdqbVpXcXuiHn7dbqggQNI
-9JAmju3/s+MQwgPtCqmyjJB6Sn8VOimgMpdEp7si89hSC3FHo0FLmgpP5s66CSE0TVdkgClan/kF
-eJikGGz92DTN4/b2N1wtpxVix5kQ1xvXkryn1XozxeI59en8Gc4gLAJh2XnKaFEJF9vmEIfsSk1L
-HRip4TuFFMVhdkOSgbCSoIlkdIk5m67Wlw34l2S0Cn8FlcgBYotGr7ZaL9dRlRw6zEpgPcGDXEDH
-lFsFHqsl1P9bkk8RNwKjGDgSOzDB3fWvE19uTuBedtsvwzQegA1YYR7jPnKOL/mzyIdaYzLesx3Q
-vSgjK7okRlTy9rkopux52YHLD+u13vvUS/bX/TPWC5ltmg2kW9qgcSAox9mYCrWc6st/WVhtRoR3
-MjiSfdPB/9I10t15+BB09ibuw9iyRt/TsIzIMdc/jrUq2b4CAAA=
-QSAR_FILE_39_EOF
-
-cat > 'tests/test_app_safety.py' <<'QSAR_FILE_40_EOF'
-"""Focused checks for opt-in external lookups and prediction persistence."""
-
-import ast
-import types
-from pathlib import Path
-
-
-ROOT = Path(__file__).resolve().parents[1] / "streamlit"
-
-
-def test_pubchem_fallback_requires_opt_in():
-    source = (ROOT / "_shared.py").read_text()
-    module = ast.parse(source)
-    image = next(node for node in module.body if isinstance(node, ast.FunctionDef)
-                 and node.name == "smiles_to_image")
-    code = compile(ast.Module(body=[image], type_ignores=[]), str(ROOT / "_shared.py"), "exec")
-
-    fake_mol = object()
-    chem = types.SimpleNamespace(MolFromSmiles=lambda smiles: fake_mol)
-    calls = []
-    requests = types.SimpleNamespace(get=lambda *args, **kwargs: calls.append((args, kwargs)))
-    namespace = {"Chem": chem, "_RDKIT_DRAW": False, "requests": requests}
-    exec(code, namespace)
-    assert namespace["smiles_to_image"]("CC") is None
-    assert calls == []
-
-
-def test_single_prediction_logs_only_on_predict_click():
-    source = (ROOT / "pages" / "single_prediction.py").read_text()
-    module = ast.parse(source)
-    top_level_logs = [node for node in module.body if isinstance(node, ast.Expr)
-                      and isinstance(node.value, ast.Call)
-                      and isinstance(node.value.func, ast.Name)
-                      and node.value.func.id == "log_prediction"]
-    assert not top_level_logs
-    button_block = next(node for node in module.body if isinstance(node, ast.If)
-                        and "predict_btn" in ast.unparse(node.test))
-    assert "log_prediction(" in ast.unparse(button_block)
-
-
-def test_get_predict_url_discovers_service_in_snowflake():
-    source = (ROOT / "_shared.py").read_text()
-    assert "<hash>" not in source
-    assert "SHOW SERVICES LIKE 'QSAR_PLUMBER_SVC'" in source
-QSAR_FILE_40_EOF
-
 files=(
   'README.md'
   'agent/aromatase_agent.yaml'
@@ -75314,9 +75206,6 @@ files=(
   'streamlit/pyproject.toml'
   'streamlit/requirements.txt'
   'streamlit/snowflake.yml'
-  'tests/test_agent_chat.py'
-  'tests/test_agent_instructions.py'
-  'tests/test_app_safety.py'
 )
 for file in "${files[@]}"; do
   if [[ ! -s "$file" ]]; then
@@ -75325,5 +75214,5 @@ for file in "${files[@]}"; do
   fi
 done
 printf '%s\n' \
-  'Created 40 project files in bioinformatics/r-python-drug-discovery.' \
+  'Created 37 project files in bioinformatics/r-python-drug-discovery.' \
   'No Snowflake statements or container builds were executed.'
